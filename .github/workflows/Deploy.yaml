@@ -1,0 +1,15 @@
+name: meu projeto game simple deploy
+
+on:
+  push:
+    branches:
+      - main  
+jobs:
+  projeto:
+    runs-on: ubuntu-latest  
+    steps:
+      - name: Baixar o codigo do repositorio
+        uses: actions/checkout@v4
+
+      - name: Construir a imagem Docker do Front-end
+        run: docker build -t meu-game-frontend:latest ./Frontend
