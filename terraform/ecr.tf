@@ -1,6 +1,4 @@
-resource "aws_ecr_repository" "myimage" {
-  name                 = "minha_imagem"
-  image_tag_mutability = "MUTABLE"
-
-
+resource "aws_ecr_repository" "meu_ecr" {
+  name         = "minha_imagem"
+  force_delete = true  # <--- ADICIONE ESTA LINHA AQUI
 }
