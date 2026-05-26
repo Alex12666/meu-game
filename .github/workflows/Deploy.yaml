@@ -67,8 +67,8 @@ jobs:
               sudo apt-get install -y awscli
             fi
 
-            # O "-E" serve para repassar as variáveis de ambiente carregadas pelo SSH para dentro do comando do SUDO
-            sudo -E aws ecr get-login-password --region us-east-2 | sudo docker login --username AWS --password-stdin 960956258767.dkr.ecr.us-east-2.amazonaws.com
+            # SOLUÇÃO DE CONTORNO: Força as variáveis diretamente na chamada do comando sem depender do sudo -E
+            AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="us-east-2" aws ecr get-login-password --region us-east-2 | sudo docker login --username AWS --password-stdin 960956258767.dkr.ecr.us-east-2.amazonaws.com
 
             # Remove o container antigo (se existir) para liberar a porta 80
             sudo docker stop meu-front || true
