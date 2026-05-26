@@ -29,7 +29,7 @@ jobs:
       - name: Construir, Taggear e Push da imagem para o ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: minha_imagem  # Nome exato definido no seu ecr.tf
+          ECR_REPOSITORY: minha_imagem  # Nome definido no seu ecr.tf
           IMAGE_TAG: latest
         run: |
           # Builda a imagem apontando para a sua pasta Frontend
@@ -37,13 +37,20 @@ jobs:
           # Envia a imagem para o ECR da AWS
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      # 4. ENTRA NA EC2 VIA SSH (PORTA 22) E ATUALIZA O CONTAINER
+      # 4. ENTRA NA EC2 VIA SSH (PORTA 22) E ATUALIZA O CONTAINER COM AS CREDENCIAIS CORRETAS
       - name: Deploy na EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # Passando as chaves como variáveis de ambiente temporárias para a Action
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-2
         with:
           host: ${{ secrets.EC2_PUBLIC_IP }}
           username: ubuntu  # Usuário padrão do Ubuntu na AWS
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # O comando envs abaixo diz ao SSH para carregar e permitir o uso dessas 3 variáveis dentro da EC2
+          envs: AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION
           script: |
             # Atualiza a lista de pacotes da máquina
             sudo apt-get update -y
@@ -55,20 +62,20 @@ jobs:
               sudo systemctl enable docker
             fi
 
-            # CORREÇÃO DO ERRO ANTERIOR: Instala o AWS CLI caso não exista na máquina
+            # Instala o AWS CLI caso não exista na máquina
             if ! command -v aws &> /dev/null; then
               sudo apt-get install -y awscli
             fi
 
-            # Autentica o Docker local da máquina EC2 dentro do seu ECR da AWS
-            sudo aws ecr get-login-password --region us-east-2 | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            # O "-E" serve para repassar as variáveis de ambiente carregadas pelo SSH para dentro do comando do SUDO
+            sudo -E aws ecr get-login-password --region us-east-2 | sudo docker login --username AWS --password-stdin 960956258767.dkr.ecr.us-east-2.amazonaws.com
 
             # Remove o container antigo (se existir) para liberar a porta 80
             sudo docker stop meu-front || true
             sudo docker rm meu-front || true
 
-            # Baixa a nova imagem que o GitHub Actions acabou de enviar para o ECR
-            sudo docker pull ${{ steps.login-ecr.outputs.registry }}/minha_imagem:latest
+            # Baixa a nova imagem atualizada que foi gerada no ECR
+            sudo docker pull 960956258767.dkr.ecr.us-east-2.amazonaws.com/minha_imagem:latest
 
             # Sobe o novo container mapeando para a porta pública 80
-            sudo docker run -d --name meu-front -p 80:80 ${{ steps.login-ecr.outputs.registry }}/minha_imagem:latest
+            sudo docker run -d --name meu-front -p 80:80 960956258767.dkr.ecr.us-east-2.amazonaws.com/minha_imagem:latest
