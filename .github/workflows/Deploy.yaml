@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main  
+
 jobs:
   projeto:
     runs-on: ubuntu-latest  
@@ -11,5 +12,56 @@ jobs:
       - name: Baixar o codigo do repositorio
         uses: actions/checkout@v4
 
-      - name: Construir a imagem Docker do Front-end
-        run: docker build -t meu-game-frontend:latest ./Frontend
+      # 1. AUTENTICA NA AWS USANDO SUAS SECRETS
+      - name: Configurar Credenciais da AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2  # Região de Ohio que você travou no Terraform
+
+      # 2. FAZ LOGIN NO SEU REPOSITÓRIO ECR PRIVADO
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 3. CONSTRÓI A IMAGEM E FAZ O PUSH PARA O ECR
+      - name: Construir, Taggear e Push da imagem para o ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: minha_imagem  # Nome exato que está no seu ecr.tf
+          IMAGE_TAG: latest
+        run: |
+          # Builda apontando para a sua pasta Frontend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./Frontend
+          # Chuta a imagem para dentro do ECR da AWS
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # 4. ENTRA NA EC2 VIA SSH (PORTA 22) E MONTA O CONTAINER
+      - name: Deploy na EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_PUBLIC_IP }}
+          username: ubuntu  # Usuário padrão do Ubuntu na AWS
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Instala o Docker na máquina caso ele não esteja lá (Garantia de Infra)
+            if ! command -v docker &> /dev/null; then
+              sudo apt-get update -y
+              sudo apt-get install -y docker.io
+              sudo systemctl start docker
+              sudo systemctl enable docker
+            fi
+
+            # Autentica o Docker da máquina EC2 no seu ECR
+            sudo aws ecr get-login-password --region us-east-2 | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+
+            # Derruba o container antigo se ele já estiver rodando para não dar conflito de porta
+            sudo docker stop meu-front || true
+            sudo docker rm meu-front || true
+
+            # Puxa a imagem novinha que o pipeline acabou de postar no ECR
+            sudo docker pull ${{ steps.login-ecr.outputs.registry }}/minha_imagem:latest
+
+            # Sobe o container jogando para a porta 80 (O apartamento HTTP que você abriu no Terraform)
+            sudo docker run -d --name meu-front -p 80:80 ${{ steps.login-ecr.outputs.registry }}/minha_imagem:latest
